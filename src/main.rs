@@ -107,7 +107,8 @@ fn search_notebook(nb: &Notebook, opts: &SearchOptions) -> Result<bool, RunErr> 
         }
 
         if opts.include_source {
-            let matches = search_text_lines(&cell.source, opts);
+            let lines = build_src_ref(&cell.source);
+            let matches = search_text_lines(lines, opts);
             for m in matches {
                 print_text_match(&m, cell, opts);
                 found_match = true;
@@ -124,8 +125,16 @@ fn search_notebook(nb: &Notebook, opts: &SearchOptions) -> Result<bool, RunErr> 
     Ok(found_match)
 }
 
+fn build_src_ref(source: &Vec<String>) -> Vec<&str> {
+    let mut v = Vec::with_capacity(source.len());
+    for el in source.iter() {
+        v.push(el.as_ref());
+    }
+    return v;
+}
 
-fn search_text_lines<'a, T: AsRef<str>>(text: &'a Vec<T>, opts: &SearchOptions) -> Vec<MatchedLine<'a>> {
+
+fn search_text_lines<'a>(text: Vec<&'a str>, opts: &SearchOptions) -> Vec<MatchedLine<'a>> {
     let mut matched_lines: Vec<MatchedLine> = Vec::new();
     for (i, line) in text.iter().enumerate() {
         if !opts.re.is_match(line.as_ref()) {
@@ -137,7 +146,7 @@ fn search_text_lines<'a, T: AsRef<str>>(text: &'a Vec<T>, opts: &SearchOptions) 
             inds.push((m.start(), m.end()));
         }
 
-        let ml = MatchedLine{line: line.as_ref(), line_number: i, match_positions: inds};
+        let ml = MatchedLine{line: line, line_number: i, match_positions: inds};
         matched_lines.push(ml);
     }
 
@@ -151,7 +160,7 @@ fn search_output<'a>(outp: &'a Output, opts: &SearchOptions) -> Result<Vec<Match
     for (dtype, val) in outp.data.iter(){
         if is_text(dtype){
             let lines = convert_output_text_data(val)?;
-            for m in search_text_lines(&lines, opts) {
+            for m in search_text_lines(lines, opts) {
                 matched_lines.push(m.clone());
             }
             
