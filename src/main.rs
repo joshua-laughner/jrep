@@ -1,5 +1,8 @@
-use std::fs;
+use std::{fs,fmt};
 use std::collections::HashMap;
+use atty::Stream;
+use clap;
+use exitcode;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use term;
@@ -7,7 +10,7 @@ use term;
 // Still to implement:
 //  * Command line interface (probably use `clap`)
 //      - Source only/certain output types only
-//      - Color/no color
+//      - Color/no color. Default to color unless stdout is redirected
 //      - Count only (no matching)
 //      - Include cell number/cell execution count/line in cell
 //      - Case insensitive
@@ -30,8 +33,22 @@ struct RunErr {
     msg: String
 }
 
+impl fmt::Display for RunErr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.msg)?;
+        fmt::Result::Ok(())
+    }
+}
+
 impl From<std::io::Error> for RunErr {
     fn from(error: std::io::Error) -> Self {
+        let msg = error.to_string();
+        Self{msg}
+    }
+}
+
+impl From<regex::Error> for RunErr {
+    fn from(error: regex::Error) -> Self {
         let msg = error.to_string();
         Self{msg}
     }
@@ -57,6 +74,22 @@ struct SearchOptions {
     include_cell_types: Vec<String>,
     include_output_types: Vec<String>,
     color_matches: bool
+}
+
+impl SearchOptions {
+    fn from_arg_matches(matches: &clap::ArgMatches) -> Result<Self, RunErr> {
+        let re = matches.value_of("pattern").unwrap();
+
+        let opts = SearchOptions{
+            re: Regex::new(re)?,
+            include_source: true,
+            include_cell_types: vec![String::from("markdown"), String::from("code")],
+            include_output_types: vec![String::from("text/plain")],
+            color_matches: true
+        };
+
+        Ok(opts)
+    }
 }
 
 
@@ -133,7 +166,7 @@ fn is_text(datatype: &str) -> bool {
 }
 
 
-fn load_notebook(path: &str) -> Result<Notebook, RunErr>{
+fn load_notebook(path: &std::ffi::OsString) -> Result<Notebook, RunErr>{
     let data = fs::read_to_string(path)?;
     let notebook: Notebook = serde_json::from_str(&data)?;
 
@@ -304,20 +337,51 @@ fn trim_newline(s: &mut String) {
 }
 
 
-fn main() {
-    let nb = load_notebook("example-notebooks/demo.ipynb").unwrap();
-    //println!("Notebook has {} cells", nb.cells.len());
-    //println!("Cell 0 source = {:#?}", nb.cells[0].source);
+fn parse_clargs() -> Result<(Vec<std::ffi::OsString>, SearchOptions), RunErr> {
+    let yml = clap::load_yaml!("clargs.yml");
+    let clargs = clap::App::from_yaml(yml).version(clap::crate_version!()).get_matches();
 
-    //let out = &nb.cells[4].outputs.as_ref().unwrap();
-    //println!("Cell 4 outputs[0] = {:#?}", &out[0]);
+    let paths_raw = clargs.values_of_os("paths").unwrap();
+    let mut paths: Vec<std::ffi::OsString> = Vec::new();
+    for p in paths_raw {
+        paths.push(std::ffi::OsString::from(p));
+    }
+    //std::ffi::OsString::from(s: String)
 
-    let opts = SearchOptions{
-        re: Regex::new(r"gpd").unwrap(),
-        include_source: true,
-        include_cell_types: vec![String::from("markdown"), String::from("code")],
-        include_output_types: vec![String::from("text/plain")],
-        color_matches: true
+    let opts = match SearchOptions::from_arg_matches(&clargs){
+        Ok(o) => o,
+        Err(e) => {
+            let msg = format!("The search pattern was not valid: {}", e);
+            return Err(RunErr{msg})
+        }
     };
-    search_notebook(&nb, &opts).unwrap();
+    return Ok((paths, opts));
+}
+
+
+fn main() {
+    let (paths, opts) = match parse_clargs() {
+        Ok((p,o)) => (p,o),
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(exitcode::USAGE);
+        }
+    };
+
+    for filename in paths {
+        let nb = match load_notebook(&filename) {
+            Ok(x) => x,
+            Err(e) => {
+                eprintln!("Error reading file {:?}: {}", &filename, e);
+                continue;
+            }
+        };
+        match search_notebook(&nb, &opts) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("Error searching file {:?}: {}", &filename, e);
+                continue;
+            }
+        };
+    }
 }

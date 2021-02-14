@@ -1,0 +1,18 @@
+name: jrep
+# Version will be set from Cargo.toml
+about: grep for Jupyter notebooks
+author: Joshua Laughner <jlaugh@caltech.edu>
+
+settings:
+  - ArgRequiredElseHelp
+
+args:
+  - pattern:
+      help: "The pattern to search for, may be a regex pattern"
+      required: true
+      index: 1
+  - paths:
+      help: "The Jupyter notebook files to search."
+      required: true
+      multiple: true
+      min_values: 1

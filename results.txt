@@ -1,0 +1,3 @@
+import geopandas as [91m[1mgpd(B[m
+geo = [91m[1mgpd(B[m.read_file('data/shpfiles/states/cb_2018_us_state_20m.shp')(B[m
+geo2 = [91m[1mgpd(B[m.read_file('data/shpfiles/canada/lpr_000b16a_e.shp').to_crs("EPSG:4326")(B[m
