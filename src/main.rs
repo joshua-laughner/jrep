@@ -19,8 +19,8 @@ use term;
 //      - x Multiple files
 //      - Recursive/include by glob pattern
 //      - Maybe context lines/print whole cell?
-//  * Limiting to certain output types
-//  * Binary output match/no match
+//  * x Limiting to certain output types
+//  * x Binary output match/no match
 //  * Counting matches
 //  * Printing cell information
 //  * x Case insensitivity
@@ -28,6 +28,7 @@ use term;
 //  * Recursive searching
 
 const TEXT_OUTPUT_TYPES: [&str;1] = ["text/plain"];
+const DEFAULT_OUTPUTS: [&str;1] = ["text/plain"];
 
 #[derive(Debug)]
 struct RunErr {
@@ -97,11 +98,50 @@ impl SearchOptions {
             _ => {return Err(RunErr::from("Unexpected value for '--color'"))}
         };
 
+        // Because incl_src and no_incl_src override each other, and we want the default to be
+        // include cell source text, we only need to check that there are no non-overridden
+        // occurences of no_incl_src. Just checking "is_present" won't work - it's `true` even
+        // if overridden.
+        let n_skip_src = matches.occurrences_of("no_incl_src");
+        let incl_src = n_skip_src == 0;
+
+        // Which cell types we search. Default is all (markdown, raw, code)
+        let cell_types = if let Some(vals) = matches.values_of("cell_types") {
+            let mut tmp = Vec::new();
+            for ct in vals {
+                tmp.push(String::from(ct));
+            }
+            tmp
+        }else{
+            vec![String::from("markdown"), String::from("code"), String::from("raw")]
+        };
+        
+        // Which output types to include
+        let prelim_output_types = if let Some(vals) = matches.values_of("output_types") {
+            let mut tmp = Vec::new();
+            for ot in vals {
+                tmp.push(String::from(ot));
+            }
+            tmp
+        }else{
+            to_string_vec(&DEFAULT_OUTPUTS)
+        };
+
+        let output_types = if matches.occurrences_of("incl_output") > 0 {
+            to_string_vec(&DEFAULT_OUTPUTS)
+        }else if matches.occurrences_of("no_incl_output") > 0 {
+            Vec::new()
+        }else{
+            prelim_output_types
+        };
+
+        //eprintln!("output types = {:?}", output_types);
+
         let opts = SearchOptions{
             re: Regex::new(&re)?,
-            include_source: true,
-            include_cell_types: vec![String::from("markdown"), String::from("code")],
-            include_output_types: vec![String::from("text/plain")],
+            include_source: incl_src,
+            include_cell_types: cell_types,//vec![String::from("markdown"), String::from("code")],
+            include_output_types: output_types,
             color_matches: color,
             invert_match
         };
@@ -114,7 +154,8 @@ impl SearchOptions {
 struct MatchedLine<'a> {
     line: &'a str,
     line_number: usize,
-    match_positions: Vec<(usize, usize)>
+    match_positions: Vec<(usize, usize)>,
+    is_text: bool
 }
 
 impl MatchedLine<'_> {
@@ -144,7 +185,8 @@ impl Clone for MatchedLine<'_> {
         Self{
             line: self.line,
             line_number: self.line_number,
-            match_positions: self.match_positions.iter().cloned().collect()
+            match_positions: self.match_positions.iter().cloned().collect(),
+            is_text: self.is_text
         }
     }
 }
@@ -171,7 +213,6 @@ struct Output {
     data: HashMap<String, serde_json::Value>, 
     output_type: String
 }
-
 
 fn is_text(datatype: &str) -> bool {
     for &t in TEXT_OUTPUT_TYPES.iter() {
@@ -214,7 +255,11 @@ fn search_notebook(nb: &Notebook, opts: &SearchOptions) -> Result<bool, RunErr> 
                 let matches = search_output(&outp, opts)?;
                 // TODO: gracefully handle unexpected notebook format?
                 for m in matches {
-                    print_text_match(&m, &cell, &icell, opts);
+                    if m.is_text {
+                        print_text_match(&m, &cell, &icell, opts);
+                    }else{
+                        print_nontext_match(&m, &cell, &icell, opts);
+                    }
                     found_match = true;
                 }
             }
@@ -247,11 +292,22 @@ fn search_text_lines<'a>(text: Vec<&'a str>, opts: &SearchOptions) -> Vec<Matche
             inds.push((m.start(), m.end()));
         }
 
-        let ml = MatchedLine{line: line, line_number: i, match_positions: inds};
+        let ml = MatchedLine{line: line, line_number: i, match_positions: inds, is_text: true};
         matched_lines.push(ml);
     }
 
     return matched_lines;
+}
+
+fn search_nontext_data<'a>(data: &'a str, opts: &SearchOptions) -> Option<MatchedLine<'a>> {
+    if !opts.invert_match && !opts.re.is_match(data) {
+        return None;
+    }else if opts.invert_match && opts.re.is_match(data){
+        return None;
+    };
+
+    Some(MatchedLine{line: data, line_number: 0, match_positions: Vec::new(), is_text: false})
+
 }
 
 
@@ -259,14 +315,19 @@ fn search_output<'a>(outp: &'a Output, opts: &SearchOptions) -> Result<Vec<Match
     let mut matched_lines = Vec::new();
 
     for (dtype, val) in outp.data.iter(){
-        if is_text(dtype){
+        if !opts.include_output_types.contains(dtype) {
+            // skip
+        }else if is_text(dtype){
             let lines = convert_output_text_data(val)?;
             for m in search_text_lines(lines, opts) {
-                matched_lines.push(m.clone());
+                matched_lines.push(m);
             }
             
         }else{
-
+            let data = convert_output_nontext_data(val)?;
+            if let Some(m) = search_nontext_data(data, opts) {
+                matched_lines.push(m);
+            }
         }
     }
 
@@ -290,6 +351,16 @@ fn convert_output_text_data<'a>(val: &'a serde_json::Value) -> Result<Vec<&'a st
     }
 
     Ok(text_lines)
+}
+
+fn convert_output_nontext_data<'a>(val: &'a serde_json::Value) -> Result<&'a str, RunErr> {
+    let data = if let serde_json::Value::String(s) = val {
+        s
+    }else{
+        return Err(RunErr::from("Unexpected type for nontext data"));
+    };
+
+    Ok(data)
 }
 
 fn print_text_match(m: &MatchedLine, cell: &Cell, icell: &usize, opts: &SearchOptions) {
@@ -319,15 +390,16 @@ fn print_text_match(m: &MatchedLine, cell: &Cell, icell: &usize, opts: &SearchOp
                         curr_bytes.clear();
                         curr_bytes.push(b);
 
-                        terminal.fg(term::color::BRIGHT_RED).unwrap();
-                        terminal.attr(term::Attr::Bold).unwrap();
+                        color_on(&mut terminal);
+                        //terminal.fg(term::color::BRIGHT_RED).unwrap();
+                        //terminal.attr(term::Attr::Bold).unwrap();
                     }else if m.at_any_match_stop(idx) {
                         let s = String::from_utf8(curr_bytes.clone()).unwrap();
                         print!("{}", s);
                         curr_bytes.clear();
                         curr_bytes.push(b);
 
-                        terminal.reset().unwrap();
+                        color_off(&mut terminal);
                     }else{
                         curr_bytes.push(b);
                     }
@@ -348,6 +420,12 @@ fn print_text_match(m: &MatchedLine, cell: &Cell, icell: &usize, opts: &SearchOp
 }
 
 
+fn print_nontext_match(_m: &MatchedLine, _cell: &Cell, _icell: &usize, _opts: &SearchOptions) {
+    print_colored("Non-text output data matches.");
+    println!();
+}
+
+
 fn trim_newline(s: &mut String) {
     // https://stackoverflow.com/a/55041833
     if s.ends_with('\n') {
@@ -356,6 +434,35 @@ fn trim_newline(s: &mut String) {
             s.pop();
         }
     }
+}
+
+fn to_string_vec(a: &[&str]) -> Vec<String> {
+    let mut tmp = Vec::new();
+    for &el in a {
+        tmp.push(String::from(el));
+    }
+    tmp
+}
+
+fn print_colored(msg: &str) {
+    let termopt = term::stdout();
+    match termopt {
+        None => {print!("{}", msg)},
+        Some(mut terminal) => {
+            color_on(&mut terminal);
+            print!("{}", msg);
+            color_off(&mut terminal);
+        }
+    }
+}
+
+fn color_on(terminal: &mut std::boxed::Box<dyn term::Terminal<Output = std::io::Stdout> + std::marker::Send>) {
+    terminal.fg(term::color::BRIGHT_RED).unwrap();
+    terminal.attr(term::Attr::Bold).unwrap();
+}
+
+fn color_off(terminal: &mut std::boxed::Box<dyn term::Terminal<Output = std::io::Stdout> + std::marker::Send>) {
+    terminal.reset().unwrap();
 }
 
 

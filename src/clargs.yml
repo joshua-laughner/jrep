@@ -5,6 +5,9 @@ author: Joshua Laughner <jlaugh@caltech.edu>
 
 settings:
   - ArgRequiredElseHelp
+  - DontCollapseArgsInUsage
+  - DeriveDisplayOrder
+  - UnifiedHelpMessage
 
 args:
   - color:
@@ -25,6 +28,67 @@ args:
       long: invert-match
       help: "Match lines that do *not* contain PATTERN."
       takes_value: false
+  - incl_src:
+      long: include-source
+      help: "Search cell source code (markdown, raw, or code)"
+      long_help: "Turns on searching Jupyter cell source code. That is the default behavior; use this option to override a previous
+      instance of --no-include-source."
+      overrides_with: no_incl_src
+  - no_incl_src:
+      short: X
+      long: no-include-source
+      help: "Do not search cell source code."
+      long_help: "Turns off searching Jupyter cell source code. This and --include-source override each other; whichever is last determines
+      the behavior."
+      overrides_with: incl_src
+  - cell_types:
+      short: t
+      long: cell-type
+      help: "Which types of cells to search. Default is to search all cell types (markdown, code, and raw)."
+      possible_values: ["markdown", "code", "raw"]
+      multiple: true
+      number_of_values: 1
+      takes_value: true
+  - output_types:
+      short: O
+      long: output-type
+      help: "Which types of cell output to search (e.g. 'text/plain', 'image/png'). Default is just 'text/plain'."
+      long_help: >
+        Which types of cell output to search. Internally, a Jupyter notebook cell may have multiple types of output,
+        such as text and an image. These are identified by keys such as 'text/plain' and 'image/png'. By default, 'text/plain' 
+        output types are included in a search. Passing *any* output type option overrides this, so `-O image/png` means that
+        only 'image/png' output types are searched. This option may be specified multiple times to include multiple types.
+        
+
+        Note that there is no checking of the output types given, so if you mistype (e.g. 'img/png' instead of 'image/png') jrep
+        cannot check that you have entered an type that will never be present.
+        
+
+        Also note that this only affects searching cell output; whether cell source code is searched depends on the --include-source
+        and --no-include-source flags.
+        
+
+        This, --include-output, and --no-include output all override each other. Whichever option is given last will determine the
+        behavior.
+      multiple: true
+      number_of_values: 1
+      takes_value: true
+      overrides_with: "no_incl_output"
+      overrides_with: ["incl_output", "no_incl_output"]
+  - incl_output:
+      long: include-output
+      help: "Reset searched output types to default ('text/plain')."
+      long_help: >
+        This flag overrides any previous --no-include-output or --output-type options. It resets the output cell data types searched
+        to the default of 'text/plain' only. See the help for --output-type for more information.
+      overrides_with: ["no_incl_output", "output_types"]
+  - no_incl_output:
+      long: no-include-output
+      help: "Do not search any cell output data."
+      long_help: >
+        This flag overrides any previous --include-output or --output-type options. It turns off any searching of output cells for the
+        given PATTERN.
+      overrides_with: ["incl_output", "output_types"]
   - pattern:
       help: "The pattern to search for, may be a regex pattern"
       required: true
