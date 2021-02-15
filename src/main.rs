@@ -10,21 +10,22 @@ use term;
 // Still to implement:
 //  * Command line interface (probably use `clap`)
 //      - Source only/certain output types only
-//      - Color/no color. Default to color unless stdout is redirected
+//      - x Color/no color. Default to color unless stdout is redirected
 //      - Count only (no matching)
 //      - Include cell number/cell execution count/line in cell
-//      - Case insensitive
-//      - Invert matching
-//      - With filename/withoug filename
-//      - Multiple files
+//      - x Case insensitive
+//      - x Invert matching
+//      - With filename/without filename
+//      - x Multiple files
 //      - Recursive/include by glob pattern
 //      - Maybe context lines/print whole cell?
 //  * Limiting to certain output types
 //  * Binary output match/no match
 //  * Counting matches
 //  * Printing cell information
-//  * Case insensitivity
-//  * Iterating over multiple files/recursive searching
+//  * x Case insensitivity
+//  * x Iterating over multiple files
+//  * Recursive searching
 
 const TEXT_OUTPUT_TYPES: [&str;1] = ["text/plain"];
 
@@ -73,19 +74,36 @@ struct SearchOptions {
     include_source: bool,
     include_cell_types: Vec<String>,
     include_output_types: Vec<String>,
-    color_matches: bool
+    color_matches: bool,
+    invert_match: bool
 }
 
 impl SearchOptions {
     fn from_arg_matches(matches: &clap::ArgMatches) -> Result<Self, RunErr> {
+        let ignore_case = matches.occurrences_of("case") > 0;
+        let invert_match = matches.occurrences_of("invert") > 0;
+
         let re = matches.value_of("pattern").unwrap();
+        let re = if ignore_case {
+            format!("(?i){}", re)
+        }else{
+            String::from(re)
+        };
+
+        let color = match matches.value_of("color").unwrap() {
+            "always" => true,
+            "never" => false,
+            "auto" => atty::is(Stream::Stdout),
+            _ => {return Err(RunErr::from("Unexpected value for '--color'"))}
+        };
 
         let opts = SearchOptions{
-            re: Regex::new(re)?,
+            re: Regex::new(&re)?,
             include_source: true,
             include_cell_types: vec![String::from("markdown"), String::from("code")],
             include_output_types: vec![String::from("text/plain")],
-            color_matches: true
+            color_matches: color,
+            invert_match
         };
 
         Ok(opts)
@@ -218,7 +236,9 @@ fn build_src_ref(source: &Vec<String>) -> Vec<&str> {
 fn search_text_lines<'a>(text: Vec<&'a str>, opts: &SearchOptions) -> Vec<MatchedLine<'a>> {
     let mut matched_lines: Vec<MatchedLine> = Vec::new();
     for (i, line) in text.iter().enumerate() {
-        if !opts.re.is_match(line.as_ref()) {
+        if !opts.invert_match && !opts.re.is_match(line.as_ref()) {
+            continue;
+        }else if opts.invert_match && opts.re.is_match(line.as_ref()) {
             continue;
         }
 
@@ -278,7 +298,9 @@ fn print_text_match(m: &MatchedLine, cell: &Cell, icell: &usize, opts: &SearchOp
     // https://mmstick.gitbooks.io/rust-programming-phoronix-reader-how-to/content/chapter11.html
 
     if !opts.color_matches {
-        print!("{}", m.line);
+        let mut s = String::from(m.line);
+        trim_newline(&mut s);
+        print!("{}", s);
     }else{
         let termopt = term::stdout();
         match termopt {
@@ -346,7 +368,6 @@ fn parse_clargs() -> Result<(Vec<std::ffi::OsString>, SearchOptions), RunErr> {
     for p in paths_raw {
         paths.push(std::ffi::OsString::from(p));
     }
-    //std::ffi::OsString::from(s: String)
 
     let opts = match SearchOptions::from_arg_matches(&clargs){
         Ok(o) => o,

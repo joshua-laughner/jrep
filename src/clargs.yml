@@ -7,6 +7,24 @@ settings:
   - ArgRequiredElseHelp
 
 args:
+  - color:
+      long: color
+      help: "When to color matches"
+      long_help: "If set to 'auto', then matching text will be colored as long as stdout goes to a terminal (not a file or pipe).
+      Setting this to 'never' or 'always' will prevent or force coloring, respectively. The default, if this option is not present,
+      is 'auto'."
+      default_value: "auto"
+      possible_values: ["never", "always", "auto"]
+  - case:
+      short: i
+      long: ignore-case
+      help: "Ignore case when matching"
+      takes_value: false
+  - invert:
+      short: v
+      long: invert-match
+      help: "Match lines that do *not* contain PATTERN."
+      takes_value: false
   - pattern:
       help: "The pattern to search for, may be a regex pattern"
       required: true
