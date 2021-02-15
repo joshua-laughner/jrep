@@ -9,20 +9,20 @@ use term;
 
 // Still to implement:
 //  * Command line interface (probably use `clap`)
-//      - Source only/certain output types only
+//      - x Source only/certain output types only
 //      - x Color/no color. Default to color unless stdout is redirected
 //      - Count only (no matching)
-//      - Include cell number/cell execution count/line in cell
+//      - x Include cell number/cell execution count/line in cell
 //      - x Case insensitive
 //      - x Invert matching
-//      - With filename/without filename
+//      - x With filename/without filename
 //      - x Multiple files
 //      - Recursive/include by glob pattern
 //      - Maybe context lines/print whole cell?
 //  * x Limiting to certain output types
 //  * x Binary output match/no match
 //  * Counting matches
-//  * Printing cell information
+//  * x Printing cell information
 //  * x Case insensitivity
 //  * x Iterating over multiple files
 //  * Recursive searching
@@ -76,7 +76,9 @@ struct SearchOptions {
     include_cell_types: Vec<String>,
     include_output_types: Vec<String>,
     color_matches: bool,
-    invert_match: bool
+    invert_match: bool,
+    show_line_detail: u8,
+    show_file_name: bool
 }
 
 impl SearchOptions {
@@ -135,7 +137,20 @@ impl SearchOptions {
             prelim_output_types
         };
 
-        //eprintln!("output types = {:?}", output_types);
+        // Options controlling output detail
+        let line_detail_level = if matches.occurrences_of("max_line_info") > 0 {
+            255 as u8
+        } else {
+            matches.occurrences_of("line_info") as u8
+        };
+        let show_filenames_raw = matches.value_of("show_filenames").unwrap();
+        let show_filenames = if matches.occurrences_of("force_show_file") > 0 {
+            true
+        } else if show_filenames_raw == "auto" {
+            matches.occurrences_of("paths") > 1
+        } else {
+            show_filenames_raw == "always"
+        };
 
         let opts = SearchOptions{
             re: Regex::new(&re)?,
@@ -143,7 +158,9 @@ impl SearchOptions {
             include_cell_types: cell_types,//vec![String::from("markdown"), String::from("code")],
             include_output_types: output_types,
             color_matches: color,
-            invert_match
+            invert_match: invert_match,
+            show_line_detail: line_detail_level,
+            show_file_name: show_filenames
         };
 
         Ok(opts)
@@ -233,7 +250,8 @@ fn load_notebook(path: &std::ffi::OsString) -> Result<Notebook, RunErr>{
 }
 
 
-fn search_notebook(nb: &Notebook, opts: &SearchOptions) -> Result<bool, RunErr> {
+fn search_notebook(filename: &std::ffi::OsString, opts: &SearchOptions) -> Result<bool, RunErr> {
+    let nb = load_notebook(filename)?;
     let mut found_match = false;
 
     for (icell, cell) in nb.cells.iter().enumerate() {
@@ -245,7 +263,7 @@ fn search_notebook(nb: &Notebook, opts: &SearchOptions) -> Result<bool, RunErr> 
             let lines = build_src_ref(&cell.source);
             let matches = search_text_lines(lines, opts);
             for m in matches {
-                print_text_match(&m, cell, &icell, opts);
+                print_text_match(filename, &m, cell, icell, "source", opts);
                 found_match = true;
             }
         }
@@ -256,9 +274,9 @@ fn search_notebook(nb: &Notebook, opts: &SearchOptions) -> Result<bool, RunErr> 
                 // TODO: gracefully handle unexpected notebook format?
                 for m in matches {
                     if m.is_text {
-                        print_text_match(&m, &cell, &icell, opts);
+                        print_text_match(filename, &m, &cell, icell, "output/text", opts);
                     }else{
-                        print_nontext_match(&m, &cell, &icell, opts);
+                        print_nontext_match(filename, &m, &cell, icell, "output/data", opts);
                     }
                     found_match = true;
                 }
@@ -363,10 +381,39 @@ fn convert_output_nontext_data<'a>(val: &'a serde_json::Value) -> Result<&'a str
     Ok(data)
 }
 
-fn print_text_match(m: &MatchedLine, cell: &Cell, icell: &usize, opts: &SearchOptions) {
+
+fn print_line_detail(file_name: &std::ffi::OsString, m: &MatchedLine, cell: &Cell, icell: usize, cell_piece: &str, opts: &SearchOptions) {
+    if opts.show_file_name {
+        print!("{:?}: ", file_name);
+    }
+    if opts.show_line_detail == 0 {
+        print!("\t");
+        return
+    }
+
+    let exec_cnt_str = if let Some(n) = cell.execution_count {
+        format!(" [{}]", n)
+    }else{
+        if opts.show_line_detail < 4 {String::from("")}
+        else {String::from("[None]")}
+    };
+
+    let info = match opts.show_line_detail {
+        1 => format!("c.{} l.{}", icell, m.line_number+1),
+        2 => format!("c.{}{} l.{}", icell, exec_cnt_str, m.line_number+1),
+        3 => format!("c.{}{} ({}) l.{}", icell, exec_cnt_str, cell_piece, m.line_number+1),
+        _ => format!("Cell #{} (exec. {}) {}, line {}", icell, exec_cnt_str, cell_piece, m.line_number+1)
+    };
+
+    print!("{}: \t", info);
+}
+
+
+fn print_text_match(filename: &std::ffi::OsString, m: &MatchedLine, cell: &Cell, icell: usize, cell_piece: &str, opts: &SearchOptions) {
     // Print the line - if not coloring matches, then we can just print it,
     // otherwise we have to iterate over the matches and switch to colored/bolded. How to color:
     // https://mmstick.gitbooks.io/rust-programming-phoronix-reader-how-to/content/chapter11.html
+    print_line_detail(filename, m, cell, icell, cell_piece, opts);
 
     if !opts.color_matches {
         let mut s = String::from(m.line);
@@ -420,7 +467,8 @@ fn print_text_match(m: &MatchedLine, cell: &Cell, icell: &usize, opts: &SearchOp
 }
 
 
-fn print_nontext_match(_m: &MatchedLine, _cell: &Cell, _icell: &usize, _opts: &SearchOptions) {
+fn print_nontext_match(filename: &std::ffi::OsString, m: &MatchedLine, cell: &Cell, icell: usize, cell_piece: &str, opts: &SearchOptions) {
+    print_line_detail(filename, m, cell, icell, cell_piece, opts);
     print_colored("Non-text output data matches.");
     println!();
 }
@@ -497,17 +545,10 @@ fn main() {
     };
 
     for filename in paths {
-        let nb = match load_notebook(&filename) {
-            Ok(x) => x,
-            Err(e) => {
-                eprintln!("Error reading file {:?}: {}", &filename, e);
-                continue;
-            }
-        };
-        match search_notebook(&nb, &opts) {
+        match search_notebook(&filename, &opts) {
             Ok(b) => b,
             Err(e) => {
-                eprintln!("Error searching file {:?}: {}", &filename, e);
+                eprintln!("Error in file {:?}: {}", &filename, e);
                 continue;
             }
         };

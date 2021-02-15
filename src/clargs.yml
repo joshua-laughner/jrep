@@ -89,6 +89,51 @@ args:
         This flag overrides any previous --include-output or --output-type options. It turns off any searching of output cells for the
         given PATTERN.
       overrides_with: ["incl_output", "output_types"]
+  - line_info:
+      short: "n"
+      long: line-info
+      help: "Show details of where the match is in the notebook. Repeat this flag to increase the level of detail."
+      long_help: >
+        Show details of where the match is in the notebook. Repeating this flag increases the level of detail:
+
+        
+        1: cell number and line number in the cell. Example: first cell, third line = 'c.1 l.3')
+
+        2: add the execution number ('In [x]' from the notebooks) if the cell has it. Example first cell, second exec, third line = 'c.1 [2] l.3'
+
+        3: include whether the match is in the source, text output, or data (i.e. image) output of the cell
+
+        4: same information as 3, but more easily readable.
+      takes_value: false
+      multiple: true
+      overrides_with: max_line_info
+  - max_line_info:
+      short: "N"
+      long: max-line-info
+      help: "Alias for -nnnn, i.e. show the maximum line detail."
+      takes_value: false
+      overrides_with: line_info
+  - show_filenames:
+      short: H
+      long: show-filenames
+      help: "Whether to show filenames for each match."
+      long_help: >
+        Controls when to print the filename for a given match at the beginning of the output line. 'auto' will
+        print if more than 1 file is searched. 'always' forces the file name to be printed, 'never' suppresses
+        it.
+
+
+        Note that this is incompatible with the `grep` options to do the same. This is because `grep` uses -h
+        as the short option to suppress file names, but this program uses that for short-form help.
+      possible_values: ["never", "always", "auto"]
+      default_value: "auto"
+      overrides_with: force_show_file
+  - force_show_file:
+      short: F
+      long: always-show-filename
+      help: "Always show the filename with each match. Alias for --show-filenames=always."
+      takes_value: false
+      overrides_with: show_filenames
   - pattern:
       help: "The pattern to search for, may be a regex pattern"
       required: true
