@@ -27,7 +27,8 @@ use term;
 //  * x Iterating over multiple files
 //  * Recursive searching
 
-const TEXT_OUTPUT_TYPES: [&str;1] = ["text/plain"];
+const TEXT_OUTPUT_CELL_TYPES: [&str;2] = ["execution_result", "stream"];
+const TEXT_OUTPUT_DATA_TYPES: [&str;1] = ["text/plain"];
 const DEFAULT_OUTPUTS: [&str;1] = ["text/plain"];
 
 #[derive(Debug)]
@@ -227,12 +228,13 @@ struct Output {
     // and others are just a string ("image/png"). Would've just made a structure for
     // the output data with each type but (a) that's not very extensible and (b) can't have
     // slashes in field names 
-    data: HashMap<String, serde_json::Value>, 
+    data: Option<HashMap<String, serde_json::Value>>, 
+    text: Option<Vec<String>>,
     output_type: String
 }
 
 fn is_text(datatype: &str) -> bool {
-    for &t in TEXT_OUTPUT_TYPES.iter() {
+    for &t in TEXT_OUTPUT_DATA_TYPES.iter() {
         if t == datatype {
             return true;
         }
@@ -332,19 +334,21 @@ fn search_nontext_data<'a>(data: &'a str, opts: &SearchOptions) -> Option<Matche
 fn search_output<'a>(outp: &'a Output, opts: &SearchOptions) -> Result<Vec<MatchedLine<'a>>, RunErr> {
     let mut matched_lines = Vec::new();
 
-    for (dtype, val) in outp.data.iter(){
-        if !opts.include_output_types.contains(dtype) {
-            // skip
-        }else if is_text(dtype){
-            let lines = convert_output_text_data(val)?;
-            for m in search_text_lines(lines, opts) {
-                matched_lines.push(m);
-            }
-            
-        }else{
-            let data = convert_output_nontext_data(val)?;
-            if let Some(m) = search_nontext_data(data, opts) {
-                matched_lines.push(m);
+    if let Some(output_data) = &outp.data {
+        for (dtype, val) in output_data.iter(){
+            if !opts.include_output_types.contains(dtype) {
+                // skip
+            }else if is_text(dtype){
+                let lines = convert_output_text_data(val)?;
+                for m in search_text_lines(lines, opts) {
+                    matched_lines.push(m);
+                }
+                
+            }else{
+                let data = convert_output_nontext_data(val)?;
+                if let Some(m) = search_nontext_data(data, opts) {
+                    matched_lines.push(m);
+                }
             }
         }
     }
