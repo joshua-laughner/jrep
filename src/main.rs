@@ -27,7 +27,6 @@ use term;
 //  * x Iterating over multiple files
 //  * Recursive searching
 
-const TEXT_OUTPUT_CELL_TYPES: [&str;2] = ["execution_result", "stream"];
 const TEXT_OUTPUT_DATA_TYPES: [&str;1] = ["text/plain"];
 const DEFAULT_OUTPUTS: [&str;1] = ["text/plain"];
 
@@ -350,6 +349,19 @@ fn search_output<'a>(outp: &'a Output, opts: &SearchOptions) -> Result<Vec<Match
                     matched_lines.push(m);
                 }
             }
+        }
+    }
+
+    if let Some(text_lines) = &outp.text {
+        // This I think is the best way to do this. outp.text has to be a Vec<String>
+        // because it holds the original instance of the strings read from the JSON file.
+        // I tried making `search_text_lines` take a Vec<AsRef<str>> but didn't see a way
+        // to indicate that the reference would stay valid long enough. This method 
+        // creates refs that have lifetime 'a so we know they are okay to return from 
+        // this function.
+        let ref_lines: Vec<&str> = text_lines.iter().map(|x| x.as_ref()).collect();
+        for m in search_text_lines(ref_lines, opts) {
+            matched_lines.push(m);
         }
     }
 
