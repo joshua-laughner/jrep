@@ -88,9 +88,14 @@ impl SearchOptions {
 
         let re = matches.value_of("pattern").unwrap();
         let re = if ignore_case {
-            format!("(?i){}", re)
+            // In both cases the ?m (multi-line mode) flag is included
+            // so that newlines at the end do not need to be included in
+            // the regex to match with $ at the end. For example, the line
+            // "Subsetting ci" will not match the regex "Subsetting [a-z]{2}$"
+            // without the ?m flag because technically it is "Subsetting ci\n".
+            format!("(?i)(?m){}", re)
         }else{
-            String::from(re)
+            format!("(?m){}", re)
         };
 
         let color = match matches.value_of("color").unwrap() {
