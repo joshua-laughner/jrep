@@ -5,9 +5,12 @@ output data, or any combination. This is built to avoid `grep` matching strings 
 in output data (like images).
 
 ## Installing
-If you are using a 64-bit Linux, you can try downloading and unzipping the latest release and 
-placing the `jrep` file somewhere on your [PATH](https://linuxhint.com/path_in_bash/). For the
-moment, any other platforms will need to download the source code and compile it locally. This
+64-bit Windows, Mac, and Linux executables are included with the latest release. The simplest
+way to install `jrep` is to download the executable for your computer, unzip it, make the
+`jrep` file executable, and place it somewhere on your [PATH](https://linuxhint.com/path_in_bash/).
+If you encounter any problems running these, please open an issue here.
+
+You may also download the source code and compile it locally. This
 requires [Rust](https://www.rust-lang.org/) be installed, with that, running `make release` in
 the repo will compile the program. The compiled program will be `target/release/jrep` in the 
 repo folder.
