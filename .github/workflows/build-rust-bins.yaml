@@ -1,0 +1,77 @@
+name: Build Rust Executables
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'release/**'
+
+jobs:
+  check-cargo-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        id: checkout
+        uses: actions/checkout@v2
+      - name: Check cargo version
+        id: check-version
+        uses: joshua-laughner/rust-version-check@master
+        with:
+          release-tag: ${{ github.ref }}
+          check-mode: strict
+          prefix: "refs/heads/release/v"
+
+  build-linux-musl:
+    needs: check-cargo-version
+    runs-on: ubuntu-latest
+    steps:
+      # Following https://github.com/actions-rs/cargo#cross-compilation
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          target: x86_64-unknown-linux-musl
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+      - uses: actions/upload-artifact@v2
+        with:
+          name: jrep-linux64
+          path: target/release/jrep
+  build-macos-darwin:
+    needs: check-cargo-version
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+      - uses: actions/upload-artifact@v2
+        with:
+          name: jrep-apple-darwin64
+          path: target/release/jrep
+  build-windows:
+    needs: check-cargo-version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          target: x86_64-pc-windows-gnu
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release -vv
+      - uses: actions/upload-artifact@v2
+        with:
+          name: jrep-windows64
+          path: target\release\jrep.exe
