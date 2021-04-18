@@ -1,0 +1,2 @@
+Executables will be built on any push to a "release/*" branch.
+For now, manually download them and add them to a release.

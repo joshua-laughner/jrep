@@ -1,3 +1,10 @@
+# An alternative approach is to have the workflow create the release
+# whenever you push a tag. It is described at:
+#
+#   https://trstringer.com/github-actions-create-release-upload-artifacts/
+#
+# I kind of like that idea, but need to think about how to handle the Cargo
+# version check.
 name: Build Rust Executables
 on:
   workflow_dispatch:
