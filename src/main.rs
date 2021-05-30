@@ -1,5 +1,5 @@
 use std::{fs,fmt};
-use std::collections::HashMap;
+use std::collections::{HashMap,HashSet};
 use std::path::Path;
 use atty::Stream;
 use clap;
@@ -540,11 +540,26 @@ fn color_off(terminal: &mut std::boxed::Box<dyn term::Terminal<Output = std::io:
 
 
 fn get_notebooks_in_dir(dirpath: &Path, file_list: &mut Vec<std::ffi::OsString>, recurse: bool) -> Result<(), RunErr> {
+    let mut visited_dirs = HashSet::new();
+    return get_notebooks_in_dir_internal(dirpath, file_list, recurse, &mut visited_dirs);
+}
+
+fn get_notebooks_in_dir_internal(dirpath: &Path, file_list: &mut Vec<std::ffi::OsString>, recurse: bool, visited_dirs: &mut HashSet<std::ffi::OsString>) -> Result<(), RunErr> {
     for entry in dirpath.read_dir()? {
         if let Ok(entry) = entry {
             let entry_path = entry.path();
             if entry_path.is_dir() && recurse {
-                get_notebooks_in_dir(&entry_path, file_list, recurse)?;
+                let canon_path = std::ffi::OsString::from(entry_path.canonicalize()?);
+                if !visited_dirs.contains(&canon_path){
+                    // This *should* prevent infinite loops by not visiting a path more than once. 
+                    // I would have preferred using inodes, but those don't seem to be available -
+                    // maybe it's a unix-only thing, and since I'm using MUSL standard library,
+                    // it doesn't include those. I tested this by putting a symbolic link to a
+                    // directory inside itself and verified it did not search the notebooks in there
+                    // more than once.
+                    visited_dirs.insert(canon_path);
+                    get_notebooks_in_dir_internal(&entry_path, file_list, recurse, visited_dirs)?;
+                }
             }else if entry_path.is_file() {
                 if let Some(ext) = entry_path.extension() {
                     if ext == "ipynb" {
