@@ -134,6 +134,11 @@ args:
       help: "Always show the filename with each match. Alias for --show-filenames=always."
       takes_value: false
       overrides_with: show_filenames
+  - recursive:
+      short: R
+      long: recursive
+      help: "Search directories listed as paths recursively."
+      takes_value: false
   - pattern:
       help: "The pattern to search for, may be a regex pattern"
       required: true

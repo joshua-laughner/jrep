@@ -79,13 +79,15 @@ struct SearchOptions {
     color_matches: bool,
     invert_match: bool,
     show_line_detail: u8,
-    show_file_name: bool
+    show_file_name: bool,
+    recursive: bool
 }
 
 impl SearchOptions {
     fn from_arg_matches(matches: &clap::ArgMatches) -> Result<Self, RunErr> {
         let ignore_case = matches.occurrences_of("case") > 0;
         let invert_match = matches.occurrences_of("invert") > 0;
+        let recursive = matches.occurrences_of("recursive") > 0;
 
         let re = matches.value_of("pattern").unwrap();
         let re = if ignore_case {
@@ -166,7 +168,8 @@ impl SearchOptions {
             color_matches: color,
             invert_match: invert_match,
             show_line_detail: line_detail_level,
-            show_file_name: show_filenames
+            show_file_name: show_filenames,
+            recursive: recursive
         };
 
         Ok(opts)
@@ -559,6 +562,14 @@ fn get_notebooks_in_dir(dirpath: &Path, file_list: &mut Vec<std::ffi::OsString>,
 fn parse_clargs() -> Result<(Vec<std::ffi::OsString>, SearchOptions), RunErr> {
     let yml = clap::load_yaml!("clargs.yml");
     let clargs = clap::App::from_yaml(yml).version(clap::crate_version!()).get_matches();
+    
+    let opts = match SearchOptions::from_arg_matches(&clargs){
+        Ok(o) => o,
+        Err(e) => {
+            let msg = format!("The search pattern was not valid: {}", e);
+            return Err(RunErr{msg})
+        }
+    };
 
     let paths_raw = clargs.values_of_os("paths").unwrap();
     let mut paths: Vec<std::ffi::OsString> = Vec::new();
@@ -567,7 +578,7 @@ fn parse_clargs() -> Result<(Vec<std::ffi::OsString>, SearchOptions), RunErr> {
         if curr_path.is_file() {
             paths.push(std::ffi::OsString::from(p));
         }else if curr_path.is_dir() {
-            get_notebooks_in_dir(curr_path, &mut paths, false)?;
+            get_notebooks_in_dir(curr_path, &mut paths, opts.recursive)?;
         } 
     }
 
@@ -575,13 +586,6 @@ fn parse_clargs() -> Result<(Vec<std::ffi::OsString>, SearchOptions), RunErr> {
         return Err(RunErr{msg: "No notebook files listed or found in the given directories.".to_string()})
     }
 
-    let opts = match SearchOptions::from_arg_matches(&clargs){
-        Ok(o) => o,
-        Err(e) => {
-            let msg = format!("The search pattern was not valid: {}", e);
-            return Err(RunErr{msg})
-        }
-    };
     return Ok((paths, opts));
 }
 
