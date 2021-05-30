@@ -119,8 +119,8 @@ args:
       help: "Whether to show filenames for each match."
       long_help: >
         Controls when to print the filename for a given match at the beginning of the output line. 'auto' will
-        print if more than 1 file is searched. 'always' forces the file name to be printed, 'never' suppresses
-        it.
+        print if more than 1 file or any directory is searched. 'always' forces the file name to be printed, 
+        'never' suppresses it.
 
 
         Note that this is incompatible with the `grep` options to do the same. This is because `grep` uses -h

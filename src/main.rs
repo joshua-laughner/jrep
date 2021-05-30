@@ -155,7 +155,11 @@ impl SearchOptions {
         let show_filenames = if matches.occurrences_of("force_show_file") > 0 {
             true
         } else if show_filenames_raw == "auto" {
-            matches.occurrences_of("paths") > 1
+            let mut paths_raw = matches.values_of_os("paths").unwrap();
+            // Assume that if one of the input paths is a directory that
+            // we should print the file names so that we know which file
+            // is matching.
+            matches.occurrences_of("paths") > 1 || paths_raw.any(|x| Path::new(x).is_dir())
         } else {
             show_filenames_raw == "always"
         };
