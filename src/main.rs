@@ -549,19 +549,25 @@ fn get_notebooks_in_dir(dirpath: &Path, file_list: &mut Vec<std::ffi::OsString>,
 }
 
 fn get_notebooks_in_dir_internal(dirpath: &Path, file_list: &mut Vec<std::ffi::OsString>, recurse: bool, visited_dirs: &mut HashSet<std::ffi::OsString>) -> Result<(), RunErr> {
+    // This *should* prevent infinite loops by not visiting a path more than once. 
+    // I would have preferred using inodes, but those don't seem to be available -
+    // maybe it's a unix-only thing, and since I'm using MUSL standard library,
+    // it doesn't include those. I tested this by putting a symbolic link to a
+    // directory inside itself and verified it did not search the notebooks in there
+    // more than once.
+    //
+    // Inserting this into the set of visited paths at the beginning of the function
+    // avoids an edge case where the directory visited >1 time is the top directory,
+    // which doesn't get added to the set if we add it in the loop over directory 
+    // entries
+    let my_canon_path = std::ffi::OsString::from(dirpath.canonicalize()?);
+    visited_dirs.insert(my_canon_path);
     for entry in dirpath.read_dir()? {
         if let Ok(entry) = entry {
             let entry_path = entry.path();
             if entry_path.is_dir() && recurse {
                 let canon_path = std::ffi::OsString::from(entry_path.canonicalize()?);
                 if !visited_dirs.contains(&canon_path){
-                    // This *should* prevent infinite loops by not visiting a path more than once. 
-                    // I would have preferred using inodes, but those don't seem to be available -
-                    // maybe it's a unix-only thing, and since I'm using MUSL standard library,
-                    // it doesn't include those. I tested this by putting a symbolic link to a
-                    // directory inside itself and verified it did not search the notebooks in there
-                    // more than once.
-                    visited_dirs.insert(canon_path);
                     get_notebooks_in_dir_internal(&entry_path, file_list, recurse, visited_dirs)?;
                 }
             }else if entry_path.is_file() {
