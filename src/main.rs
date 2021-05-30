@@ -1,5 +1,6 @@
 use std::{fs,fmt};
 use std::collections::HashMap;
+use std::path::Path;
 use atty::Stream;
 use clap;
 use exitcode;
@@ -535,6 +536,26 @@ fn color_off(terminal: &mut std::boxed::Box<dyn term::Terminal<Output = std::io:
 }
 
 
+fn get_notebooks_in_dir(dirpath: &Path, file_list: &mut Vec<std::ffi::OsString>, recurse: bool) -> Result<(), RunErr> {
+    for entry in dirpath.read_dir()? {
+        if let Ok(entry) = entry {
+            let entry_path = entry.path();
+            if entry_path.is_dir() && recurse {
+                get_notebooks_in_dir(&entry_path, file_list, recurse)?;
+            }else if entry_path.is_file() {
+                if let Some(ext) = entry_path.extension() {
+                    if ext == "ipynb" {
+                        file_list.push(std::ffi::OsString::from(entry_path))
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+
 fn parse_clargs() -> Result<(Vec<std::ffi::OsString>, SearchOptions), RunErr> {
     let yml = clap::load_yaml!("clargs.yml");
     let clargs = clap::App::from_yaml(yml).version(clap::crate_version!()).get_matches();
@@ -542,7 +563,16 @@ fn parse_clargs() -> Result<(Vec<std::ffi::OsString>, SearchOptions), RunErr> {
     let paths_raw = clargs.values_of_os("paths").unwrap();
     let mut paths: Vec<std::ffi::OsString> = Vec::new();
     for p in paths_raw {
-        paths.push(std::ffi::OsString::from(p));
+        let curr_path = Path::new(p);
+        if curr_path.is_file() {
+            paths.push(std::ffi::OsString::from(p));
+        }else if curr_path.is_dir() {
+            get_notebooks_in_dir(curr_path, &mut paths, false)?;
+        } 
+    }
+
+    if paths.len() == 0 {
+        return Err(RunErr{msg: "No notebook files listed or found in the given directories.".to_string()})
     }
 
     let opts = match SearchOptions::from_arg_matches(&clargs){

@@ -139,7 +139,13 @@ args:
       required: true
       index: 1
   - paths:
-      help: "The Jupyter notebook files to search."
-      required: true
+      help: "The Jupyter notebook files to search or directories to search for notebook files."
+      long_help: >
+        List the notebook files to search or directories to search for notebook files. If no value
+        is given for this argument, it assumes it should search all .ipynb files in the current directory.
+        Unless the --recursive flag is set, it will only search directly in the given directories and 
+        will not go into subdirectories.
+      required: false
+      default_value: "."
       multiple: true
       min_values: 1
