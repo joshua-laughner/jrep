@@ -18,6 +18,7 @@ A clear and concise description of what you expected to happen.
 
 **Desktop (please complete the following information):**
  - OS: [e.g. Windows, MacOS, Ubuntu, etc.]
+ - Shell [e.g. bash, zsh, fish, etc.]
  - Version [e.g. 22]
 
 **Additional context (optional)**
