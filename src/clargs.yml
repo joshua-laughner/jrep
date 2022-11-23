@@ -1,7 +1,7 @@
 name: jrep
 # Version will be set from Cargo.toml
 about: grep for Jupyter notebooks
-author: Joshua Laughner <jlaugh@caltech.edu>
+author: Joshua Laughner <jllacct119@gmail.com>
 
 settings:
   - ArgRequiredElseHelp

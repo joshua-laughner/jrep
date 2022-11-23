@@ -1,3 +1,132 @@
+//! Search Jupyter notebooks from the command line
+//! 
+//! ## Why `jrep` exists
+//! Fundamentally, Jupyter notebooks are just JSON files, so if you wanted
+//! to quickly search for a string across many notebooks, you could use a
+//! program like `grep`. But, when figures or other images are captured as
+//! output, data will be a long jumble of encoded data which will (a) possibly
+//! match your search expression and (b) be such a long "line" of text that it
+//! completely swamps the rest of the (actually useful) grep output.
+//! 
+//! `jrep` is built to first parse Jupyter notebooks and only then search certain
+//! types of cells. This way, it returns relevant results rather than messes of
+//! image data.
+//! 
+//! ## Quick examples
+//! 
+//! Search cell inputs and plain text outputs in all notebooks in the current directory
+//! for the string "numpy":
+//! 
+//! ```bash
+//! jrep numpy
+//! ```
+//! 
+//! Search just the notebook `demo.ipynb` for the string "numpy":
+//! 
+//! ```bash
+//! jrep numpy demo.ipynb
+//! ```
+//! 
+//! Search all the notebooks in the directory `~/Documents/Notebooks` for the string "numpy":
+//! 
+//! ```bash
+//! jrep numpy ~/Documents/Notebooks
+//! ```
+//! 
+//! Search only markdown cells in `demo.ipynb` for web URLs starting with "http://" or "https://"
+//! (using regular expressions to indicate that the "s" is optional):
+//! 
+//! ```bash
+//! jrep --cell-type markdown 'https?://' demo.ipynb
+//! ```
+//! 
+//! ## Which notebooks are searched
+//! 
+//! Since the main use case is finding notebooks that contain a certain string, `jrep` will
+//! search all notebooks (i.e. files with the `.ipynb` extension) in the current directory if
+//! you do not explicitly specify paths to search as the second and later positional arguments.
+//! 
+//! You can specify exactly which notebook(s) to search by including them as arguments on the command
+//! line. The following would search only the notebooks `demo.ipynb` and `example.ipynb`, not any other
+//! notebooks, for the string "import":
+//! 
+//! ```bash
+//! jrep import demo.ipynb example.ipynb
+//! ```
+//! 
+//! Alternatively, you can specify directories as arguments, and any `*.ipynb` files in those directories
+//! will be searched. By default, `jrep` will *not* recurse into other directories; to enable that behavior,
+//! use the `--recursive` (short form: `-R`) flag. The following would search all notebooks in `~/Notebooks`
+//! for "import":
+//! 
+//! ```bash
+//! jrep import ~/Notebooks
+//! ```
+//! 
+//! You can mix and match directories and notebooks in the arguments, e.g.:
+//! 
+//! ```bash
+//! jrep import demo.ipynb ~/Notebooks
+//! ```
+//! 
+//! Note however, that when searching a directory, *only* files ending in `.ipynb` are searched. Currently
+//! there is no option to search other file extensions.
+//! 
+//! ## Understanding which cells are searched
+//! 
+//! At the top-most level, Jupyter notebooks consist of cells. Each cell has 
+//! source data (the text or code that you enter) and may have zero, one, or
+//! multiple output elements. Each cell is classified as "code", "markdown",
+//! or "raw" based on the type of source data it has. The output elements
+//! have a wider variety of types, but some common ones include "text/plain"
+//! and "image/png".
+//! 
+//! `jrep` will, by default, search the source data for all cell types, but
+//! only output from code cells with the type "text/plain". This gives you default
+//! behavior to search all or most human-readable text in the notebooks, but not
+//! any image or other non-text output. You can change this behavior with several
+//! of the command line flags:
+//! 
+//! * To limit which cell types (i.e. markdown, raw, or code) are searched, use the
+//!   `--cell-types` (short form: `-t`) option. You can specify this more than once
+//!   if you want to search two of the cell types, e.g. `-t markdown -t raw`.
+//! * To turn off searching the source data (i.e. input) of the cells, use
+//!   `--no-include-source` (short form: `-X`). This is just a flag, it doesn't take
+//!   any arguments.
+//! * To turn off searching outputs from code cells, use `--no-include-output`.
+//! * To change which output types are searched, use `--output-type` (short form: `-O`)
+//!   followed by the type. For example, if you did want to search image output (for some
+//!   reason), you could use `-O image/png`. Note that specifying any `--output-type` options
+//!   overrides the default of "text/plain". That means that if your notebook has outputs
+//!   of both "text/plain" and "text/latex" that you want to search, you need to pass both
+//!   types as options, i.e. `-O text/plain -O text/latex`.
+//! 
+//! ## Specifying the search string
+//! 
+//! `jrep` treats the search pattern given to it as a regular expression. This means that both
+//! searches for simple patterns, such as "numpy" or "import", and more abstract patterns, such
+//! as "foo\s?=\s?[a-zA-Z]" can be used. The regular expression syntax should be generally
+//! similar to that of [grep](https://www.man7.org/linux/man-pages/man1/grep.1.html), although
+//! this is not strictly enforced. `jrep` uses the [Regex crate](https://docs.rs/regex/latest/regex/),
+//! so see their [syntax page](https://docs.rs/regex/latest/regex/#syntax) for the exact syntax
+//! supported.
+//! 
+//! Note that your shell may interpret certain special characters in the regular expressions itself -
+//! especially `*`, `?`, `{`, `}`, and `\`. If you're giving a regular expression as the pattern for
+//! `jrep` to search for, you will probably have the best luck if you wrap it in single quotes (e.g.
+//! `jrep 'foo\s?=\s?[a-zA-Z]'`), but your experience may depend on what shell you use.
+//! 
+//! The default behavior is for `jrep` to respect the case of the search string, meaning the pattern
+//! "Foo" will not match "foo" in the notebooks. You can set `jrep` to ignore case with the `--ignore-case`
+//! (short form: `-i`) flag.
+//! 
+//! ## The rest of the interface
+//! 
+//! There are many more command line options not described here. They are all explained in the command line
+//! interface itself, and can be viewed with `jrep --help`. 
+
+
+
 use std::{fs,fmt};
 use std::collections::{HashMap,HashSet};
 use std::path::Path;
@@ -27,11 +156,16 @@ use term;
 //  * x Case insensitivity
 //  * x Iterating over multiple files
 //  * Recursive searching
+//  * Alternate mode that prints out the type of each cell and of each output, so that users
+//    can figure out what output types they have more easily.
 
+#[doc(hidden)]
 const TEXT_OUTPUT_DATA_TYPES: [&str;1] = ["text/plain"];
+#[doc(hidden)]
 const DEFAULT_OUTPUTS: [&str;1] = ["text/plain"];
 
 #[derive(Debug)]
+#[doc(hidden)]
 struct RunErr {
     msg: String
 }
@@ -71,6 +205,7 @@ impl From<&str> for RunErr {
 }
 
 
+#[doc(hidden)]
 struct SearchOptions {
     re: Regex,
     include_source: bool,
@@ -181,6 +316,7 @@ impl SearchOptions {
 }
 
 
+#[doc(hidden)]
 struct MatchedLine<'a> {
     line: &'a str,
     line_number: usize,
@@ -222,11 +358,13 @@ impl Clone for MatchedLine<'_> {
 }
 
 #[derive(Serialize, Deserialize)]
+#[doc(hidden)]
 struct Notebook {
     cells: Vec<Cell>
 }
 
 #[derive(Serialize, Deserialize)]
+#[doc(hidden)]
 struct Cell {
     cell_type: String,
     execution_count: Option<usize>,
@@ -235,6 +373,7 @@ struct Cell {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[doc(hidden)]
 struct Output {
     // data must be a hash map of Value enums because some outputs are arrays ("text/plain")
     // and others are just a string ("image/png"). Would've just made a structure for
@@ -245,6 +384,7 @@ struct Output {
     output_type: String
 }
 
+#[doc(hidden)]
 fn is_text(datatype: &str) -> bool {
     for &t in TEXT_OUTPUT_DATA_TYPES.iter() {
         if t == datatype {
@@ -256,6 +396,7 @@ fn is_text(datatype: &str) -> bool {
 }
 
 
+#[doc(hidden)]
 fn load_notebook(path: &std::ffi::OsString) -> Result<Notebook, RunErr>{
     let data = fs::read_to_string(path)?;
     let notebook: Notebook = serde_json::from_str(&data)?;
@@ -264,6 +405,7 @@ fn load_notebook(path: &std::ffi::OsString) -> Result<Notebook, RunErr>{
 }
 
 
+#[doc(hidden)]
 fn search_notebook(filename: &std::ffi::OsString, opts: &SearchOptions) -> Result<bool, RunErr> {
     let nb = load_notebook(filename)?;
     let mut found_match = false;
@@ -301,6 +443,7 @@ fn search_notebook(filename: &std::ffi::OsString, opts: &SearchOptions) -> Resul
     Ok(found_match)
 }
 
+#[doc(hidden)]
 fn build_src_ref(source: &Vec<String>) -> Vec<&str> {
     let mut v = Vec::with_capacity(source.len());
     for el in source.iter() {
@@ -310,6 +453,7 @@ fn build_src_ref(source: &Vec<String>) -> Vec<&str> {
 }
 
 
+#[doc(hidden)]
 fn search_text_lines<'a>(text: Vec<&'a str>, opts: &SearchOptions) -> Vec<MatchedLine<'a>> {
     let mut matched_lines: Vec<MatchedLine> = Vec::new();
     for (i, line) in text.iter().enumerate() {
@@ -331,6 +475,7 @@ fn search_text_lines<'a>(text: Vec<&'a str>, opts: &SearchOptions) -> Vec<Matche
     return matched_lines;
 }
 
+#[doc(hidden)]
 fn search_nontext_data<'a>(data: &'a str, opts: &SearchOptions) -> Option<MatchedLine<'a>> {
     if !opts.invert_match && !opts.re.is_match(data) {
         return None;
@@ -343,6 +488,7 @@ fn search_nontext_data<'a>(data: &'a str, opts: &SearchOptions) -> Option<Matche
 }
 
 
+#[doc(hidden)]
 fn search_output<'a>(outp: &'a Output, opts: &SearchOptions) -> Result<Vec<MatchedLine<'a>>, RunErr> {
     let mut matched_lines = Vec::new();
 
@@ -381,6 +527,7 @@ fn search_output<'a>(outp: &'a Output, opts: &SearchOptions) -> Result<Vec<Match
     return Ok(matched_lines);
 }
 
+#[doc(hidden)]
 fn convert_output_text_data<'a>(val: &'a serde_json::Value) -> Result<Vec<&'a str>, RunErr> {
     let arr = if let serde_json::Value::Array(a) = val {
         a
@@ -400,6 +547,7 @@ fn convert_output_text_data<'a>(val: &'a serde_json::Value) -> Result<Vec<&'a st
     Ok(text_lines)
 }
 
+#[doc(hidden)]
 fn convert_output_nontext_data<'a>(val: &'a serde_json::Value) -> Result<&'a str, RunErr> {
     let data = if let serde_json::Value::String(s) = val {
         s
@@ -411,6 +559,7 @@ fn convert_output_nontext_data<'a>(val: &'a serde_json::Value) -> Result<&'a str
 }
 
 
+#[doc(hidden)]
 fn print_line_detail(file_name: &std::ffi::OsString, m: &MatchedLine, cell: &Cell, icell: usize, cell_piece: &str, opts: &SearchOptions) {
     if opts.show_file_name {
         print!("{:?}: ", file_name);
@@ -438,6 +587,7 @@ fn print_line_detail(file_name: &std::ffi::OsString, m: &MatchedLine, cell: &Cel
 }
 
 
+#[doc(hidden)]
 fn print_text_match(filename: &std::ffi::OsString, m: &MatchedLine, cell: &Cell, icell: usize, cell_piece: &str, opts: &SearchOptions) {
     // Print the line - if not coloring matches, then we can just print it,
     // otherwise we have to iterate over the matches and switch to colored/bolded. How to color:
@@ -496,6 +646,7 @@ fn print_text_match(filename: &std::ffi::OsString, m: &MatchedLine, cell: &Cell,
 }
 
 
+#[doc(hidden)]
 fn print_nontext_match(filename: &std::ffi::OsString, m: &MatchedLine, cell: &Cell, icell: usize, cell_piece: &str, opts: &SearchOptions) {
     print_line_detail(filename, m, cell, icell, cell_piece, opts);
     print_colored("Non-text output data matches.");
@@ -503,6 +654,7 @@ fn print_nontext_match(filename: &std::ffi::OsString, m: &MatchedLine, cell: &Ce
 }
 
 
+#[doc(hidden)]
 fn trim_newline(s: &mut String) {
     // https://stackoverflow.com/a/55041833
     if s.ends_with('\n') {
@@ -513,6 +665,7 @@ fn trim_newline(s: &mut String) {
     }
 }
 
+#[doc(hidden)]
 fn to_string_vec(a: &[&str]) -> Vec<String> {
     let mut tmp = Vec::new();
     for &el in a {
@@ -521,6 +674,7 @@ fn to_string_vec(a: &[&str]) -> Vec<String> {
     tmp
 }
 
+#[doc(hidden)]
 fn print_colored(msg: &str) {
     let termopt = term::stdout();
     match termopt {
@@ -533,21 +687,25 @@ fn print_colored(msg: &str) {
     }
 }
 
+#[doc(hidden)]
 fn color_on(terminal: &mut std::boxed::Box<dyn term::Terminal<Output = std::io::Stdout> + std::marker::Send>) {
     terminal.fg(term::color::BRIGHT_RED).unwrap();
     terminal.attr(term::Attr::Bold).unwrap();
 }
 
+#[doc(hidden)]
 fn color_off(terminal: &mut std::boxed::Box<dyn term::Terminal<Output = std::io::Stdout> + std::marker::Send>) {
     terminal.reset().unwrap();
 }
 
 
+#[doc(hidden)]
 fn get_notebooks_in_dir(dirpath: &Path, file_list: &mut Vec<std::ffi::OsString>, recurse: bool) -> Result<(), RunErr> {
     let mut visited_dirs = HashSet::new();
     return get_notebooks_in_dir_internal(dirpath, file_list, recurse, &mut visited_dirs);
 }
 
+#[doc(hidden)]
 fn get_notebooks_in_dir_internal(dirpath: &Path, file_list: &mut Vec<std::ffi::OsString>, recurse: bool, visited_dirs: &mut HashSet<std::ffi::OsString>) -> Result<(), RunErr> {
     // This *should* prevent infinite loops by not visiting a path more than once. 
     // I would have preferred using inodes, but those don't seem to be available -
@@ -584,6 +742,7 @@ fn get_notebooks_in_dir_internal(dirpath: &Path, file_list: &mut Vec<std::ffi::O
 }
 
 
+#[doc(hidden)]
 fn parse_clargs() -> Result<(Vec<std::ffi::OsString>, SearchOptions), RunErr> {
     let yml = clap::load_yaml!("clargs.yml");
     let clargs = clap::App::from_yaml(yml).version(clap::crate_version!()).get_matches();
@@ -614,7 +773,7 @@ fn parse_clargs() -> Result<(Vec<std::ffi::OsString>, SearchOptions), RunErr> {
     return Ok((paths, opts));
 }
 
-
+#[doc(hidden)]
 fn main() {
     let (paths, opts) = match parse_clargs() {
         Ok((p,o)) => (p,o),
